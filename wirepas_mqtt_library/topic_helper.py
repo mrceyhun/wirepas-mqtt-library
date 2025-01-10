@@ -5,6 +5,8 @@
 BASE_GW_EVENT = "gw-event"
 BASE_REQUEST = "gw-request"
 BASE_RESPONSE = "gw-response"
+BASE_RFA_PUSH = "rfa-push"
+BASE_RFA_ONDEMAND = "rfa-ondemand"
 
 
 class TopicGenerator:
@@ -145,6 +147,29 @@ class TopicGenerator:
             [str(gw_id), str(sink_id), str(network_id), str(src_ep), str(dst_ep)],
         )
 
+    ##################
+    # RFAdaptor Part
+    ##################
+
+    @staticmethod
+    def _make_rfa_push_topic(cmd, params):
+        return TopicGenerator._make_topic(BASE_RFA_PUSH, cmd, params)
+
+    @staticmethod
+    def make_rfa_push_topic(customer_id):
+        return TopicGenerator._make_rfa_push_topic(str(customer_id), [])
+
+    @staticmethod
+    def _make_rfa_ondeamand_topic(cmd, params):
+        return TopicGenerator._make_topic(BASE_RFA_ONDEMAND, cmd, params)
+
+    @staticmethod
+    def make_rfa_ondemand_request_topic(customer_id):
+        return TopicGenerator._make_rfa_ondeamand_topic(str(customer_id), ['request'])
+
+    @staticmethod
+    def make_rfa_ondemand_response_topic(customer_id):
+        return TopicGenerator._make_rfa_ondeamand_topic(str(customer_id), ['response'])
 
 class TopicParser:
     """

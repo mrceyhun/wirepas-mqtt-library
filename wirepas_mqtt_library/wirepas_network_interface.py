@@ -370,6 +370,11 @@ class WirepasNetworkInterface:
         except Exception as e:
             logging.error(str(e))
 
+    def _publish_plain(self, topic, payload, qos=1, retain=False):
+        # Raise exception of failure
+        self._mqtt_client.publish(topic, payload, qos=qos, retain=retain)
+
+
     def _call_cb(self, response, *args):
         try:
             for cb, param in self._ongoing_requests[response.req_id]:
@@ -725,6 +730,38 @@ class WirepasNetworkInterface:
                       1)
 
         return self._wait_for_response(cb, request.req_id, param=param)
+
+    @_wait_for_connection
+    def send_rfadaptor_message(self, msg_type, customer_id, payload, req_id, qos=0, param=None):
+        """
+        send_rfadaptor_message(self, msg_type, customer_id, payload, qos=0, cb=None, param=None)
+        Send a rfadaptor push or ondemand message to wirepas mqtt broker
+
+        :param msg_type: one of {PUSH, ONDEMAND_REQUEST, ONDEMAND_RESPONSE}
+        :type msg_type: str
+        :param customer_id: Id of customer
+        :type customer_id: str
+        :param payload: payload to send
+        :type payload: bytes
+        :param req_id: Unique id of either push or ondemand
+        :type req_id: int
+        :param qos:  Quality of service to use (0 or 1) (default is 0)
+        :param param: Optional parameter that will be passed to callback
+        :type param: object
+        :return: None
+        """
+        msg_type = msg_type.upper()
+        if msg_type not in {"PUSH", "ONDEMAND_REQUEST", "ONDEMAND_RESPONSE"}:
+            logging.warning(f"Send rfadaptor msg_type is not correct {msg_type}, ",
+                            f"customer_id: {customer_id}, payload: {payload}")
+            return
+
+        if msg_type == "PUSH":
+            self._publish_plain(TopicGenerator.make_rfa_push_topic(customer_id=customer_id), payload, qos)
+        elif msg_type == "ONDEMAND_RESPONSE":
+            self._publish_plain(TopicGenerator.make_rfa_ondemand_response_topic(customer_id=customer_id), payload, qos)
+        elif msg_type == "ONDEMAND_REQUEST":
+            self._publish_plain(TopicGenerator.make_rfa_ondemand_request_topic(customer_id=customer_id), payload, qos)
 
     def _upload_scratchpad_as_chunks(self, topic, sink_id, seq, scratchpad, max_chunk_size, cb, param=None, timeout=60):
         end_event = Event()
