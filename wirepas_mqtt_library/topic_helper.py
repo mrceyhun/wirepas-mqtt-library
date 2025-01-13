@@ -5,8 +5,10 @@
 BASE_GW_EVENT = "gw-event"
 BASE_REQUEST = "gw-request"
 BASE_RESPONSE = "gw-response"
-BASE_RFA_PUSH = "rfa-push"
-BASE_RFA_ONDEMAND = "rfa-ondemand"
+BASE_RFA_EVENT = "rfa-event"
+BASE_RFA_REQUEST = "rfa-request"
+BASE_RFA_RESPONSE = "rfa-response"
+BASE_RFA_REQUEST_TYPES = [ 'ondemand' ]
 
 
 class TopicGenerator:
@@ -152,24 +154,35 @@ class TopicGenerator:
     ##################
 
     @staticmethod
-    def _make_rfa_push_topic(cmd, params):
-        return TopicGenerator._make_topic(BASE_RFA_PUSH, cmd, params)
+    def _make_rfa_event_topic(cmd, params):
+        return TopicGenerator._make_topic(BASE_RFA_EVENT, cmd, params)
 
     @staticmethod
-    def make_rfa_push_topic(customer_id):
-        return TopicGenerator._make_rfa_push_topic(str(customer_id), [])
+    def _make_rfa_request_topic(cmd, params):
+        return TopicGenerator._make_topic(BASE_RFA_REQUEST, cmd, params)
 
     @staticmethod
-    def _make_rfa_ondeamand_topic(cmd, params):
-        return TopicGenerator._make_topic(BASE_RFA_ONDEMAND, cmd, params)
+    def _make_rfa_response_topic(cmd, params):
+        return TopicGenerator._make_topic(BASE_RFA_RESPONSE, cmd, params)
 
     @staticmethod
-    def make_rfa_ondemand_request_topic(customer_id):
-        return TopicGenerator._make_rfa_ondeamand_topic(str(customer_id), ['request'])
+    def make_rfa_push_event_topic(params=[]):
+        return TopicGenerator._make_rfa_event_topic('pushdata', params)
 
     @staticmethod
-    def make_rfa_ondemand_response_topic(customer_id):
-        return TopicGenerator._make_rfa_ondeamand_topic(str(customer_id), ['response'])
+    def make_rfa_request_topic(request_type, hes_id=None):
+        if hes_id:
+            return TopicGenerator._make_rfa_request_topic(request_type, [str(hes_id)])
+        else:
+            return TopicGenerator._make_rfa_request_topic(request_type, [])
+
+    @staticmethod
+    def make_rfa_response_topic(response_type, hes_id=None):
+        if hes_id:
+            return TopicGenerator._make_rfa_response_topic(response_type, [str(hes_id)])
+        else:
+            return TopicGenerator._make_rfa_response_topic(response_type, [])
+
 
 class TopicParser:
     """
@@ -193,6 +206,21 @@ class TopicParser:
             raise RuntimeError("Wrong topic for received_data")
 
         return gw_id, sink_id, int(network_id), int(src_ep), int(dst_ep)
+
+    @staticmethod
+    def parse_rfa_request_topic(topic):
+        if topic.count('/') == 2:
+            _, request_type, hes_id = topic.split("/")
+        elif topic.count('/') == 1:
+            _, request_type = topic.split("/")
+            hes_id = 0
+        else:
+            raise RuntimeError("Wrong topic for rfa-request")
+
+        if request_type not in BASE_RFA_REQUEST_TYPES:
+            raise RuntimeError("Wrong topic for rfa-request")
+
+        return request_type, hes_id
 
     @staticmethod
     def parse_status_topic(topic):

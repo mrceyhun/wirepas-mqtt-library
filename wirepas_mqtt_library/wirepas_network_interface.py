@@ -188,6 +188,8 @@ class WirepasNetworkInterface:
         self._data_uplink_filters = {}
         self._data_downlink_filters_lock = Lock()
         self._data_downlink_filters = {}
+        self._data_rfa_request_lock = Lock()
+        self._data_rfa_request_filters = {}
         self._on_config_changed_cb = None
 
         # Create rx queue and start dispatch thread
@@ -241,6 +243,12 @@ class WirepasNetworkInterface:
         self._mqtt_client.subscribe(all_data_topic, qos=1)
         self._mqtt_client.message_callback_add(all_data_topic,
                                                self._on_data_received)
+
+        # Register for incoming RFA request topic
+        all_rfa_requests_topic = "rfa-request/#"
+        self._mqtt_client.subscribe(all_rfa_requests_topic, qos=1)
+        self._mqtt_client.message_callback_add(all_rfa_requests_topic,
+                                               self._on_rfa_request_received)
 
         # Register for all responses
         # TODO must be part of TopicGenerator
@@ -731,38 +739,6 @@ class WirepasNetworkInterface:
 
         return self._wait_for_response(cb, request.req_id, param=param)
 
-    @_wait_for_connection
-    def send_rfadaptor_message(self, msg_type, customer_id, payload, req_id, qos=0, param=None):
-        """
-        send_rfadaptor_message(self, msg_type, customer_id, payload, qos=0, cb=None, param=None)
-        Send a rfadaptor push or ondemand message to wirepas mqtt broker
-
-        :param msg_type: one of {PUSH, ONDEMAND_REQUEST, ONDEMAND_RESPONSE}
-        :type msg_type: str
-        :param customer_id: Id of customer
-        :type customer_id: str
-        :param payload: payload to send
-        :type payload: bytes
-        :param req_id: Unique id of either push or ondemand
-        :type req_id: int
-        :param qos:  Quality of service to use (0 or 1) (default is 0)
-        :param param: Optional parameter that will be passed to callback
-        :type param: object
-        :return: None
-        """
-        msg_type = msg_type.upper()
-        if msg_type not in {"PUSH", "ONDEMAND_REQUEST", "ONDEMAND_RESPONSE"}:
-            logging.warning(f"Send rfadaptor msg_type is not correct {msg_type}, ",
-                            f"customer_id: {customer_id}, payload: {payload}")
-            return
-
-        if msg_type == "PUSH":
-            self._publish_plain(TopicGenerator.make_rfa_push_topic(customer_id=customer_id), payload, qos)
-        elif msg_type == "ONDEMAND_RESPONSE":
-            self._publish_plain(TopicGenerator.make_rfa_ondemand_response_topic(customer_id=customer_id), payload, qos)
-        elif msg_type == "ONDEMAND_REQUEST":
-            self._publish_plain(TopicGenerator.make_rfa_ondemand_request_topic(customer_id=customer_id), payload, qos)
-
     def _upload_scratchpad_as_chunks(self, topic, sink_id, seq, scratchpad, max_chunk_size, cb, param=None, timeout=60):
         end_event = Event()
         final_res = None
@@ -1170,6 +1146,78 @@ class WirepasNetworkInterface:
     def __str__(self):
         return str(self._gateways)
 
+    @_wait_for_connection
+    def send_rfadaptor_message(self, msg_type, hes_id, payload, req_id, qos=0, sub_msg_type='ondemand', param=None):
+        """
+        send_rfadaptor_message(self, msg_type, hes_id, payload, qos=0, sub_msg_type='ondemand', cb=None, param=None)
+        Send a rfadaptor push or ondemand message to wirepas mqtt broker
+
+        :param msg_type: one of {PUSH, REQUEST, RESPONSE}
+        :type msg_type: str
+        :param hes_id: Hes id
+        :type hes_id: str
+        param sub_msg_type: request or response sub topic name, i.e. ondemand
+        :type sub_msg_type: str
+        :param payload: payload to send
+        :type payload: bytes
+        :param req_id: Unique id of either push or ondemand
+        :type req_id: int
+        :param qos:  Quality of service to use (0 or 1) (default is 0)
+        :param param: Optional parameter that will be passed to callback
+        :type param: object
+        :return: None
+        """
+        msg_type = msg_type.upper()
+        if msg_type not in {"PUSH", "REQUEST", "RESPONSE"}:
+            logging.warning(f"Send rfadaptor msg_type is not correct {msg_type}, ",
+                            f"hes_id: {hes_id}, payload: {payload}")
+            return
+
+        if msg_type == "PUSH":
+            self._publish_plain(TopicGenerator.make_rfa_push_event_topic(), payload, qos)
+        elif msg_type == "RESPONSE":
+            self._publish_plain(TopicGenerator.make_rfa_response_topic(response_type=sub_msg_type, hes_id=hes_id), payload, qos)
+        elif msg_type == "REQUEST":
+            self._publish_plain(TopicGenerator.make_rfa_request_topic(request_type=sub_msg_type, hes_id=hes_id), payload, qos)
+
+    def _on_rfa_request_received(self, client, userdata, message):
+        try:
+            request_type, hes_id = TopicParser.parse_rfa_request_topic(message.topic)
+            data = RfaRequestEvent(payload=message.payload, hes_id=hes_id, request_type=request_type)
+            self._task_queue.add_task(self._dispatch_rfa_request_data, data)
+        except ValueError:
+            logging.error(f"Cannot parse rfadaptor request topic: {message.topic} , message: {message.payload!r}")
+
+    def _dispatch_rfa_request_data(self, data):
+        with self._data_rfa_request_lock:
+            filters_copy = list(self._data_rfa_request_filters.values())
+
+        for f in filters_copy:
+            f.filter_and_dispatch(data)
+
+    def register_rfa_request_received_traffic_cb(self, cb):
+        """
+        Register a data filter to received rfa request filtered data
+
+        :param cb: Callback to be called when a matching packet is received
+        :return: The id of this filter, to be used when removing it with
+            :meth:`~wirepas_mqtt_library.wirepas_network_interface.WirepasNetworkInterface.unregister_rfa_request_received_traffic_cb`
+        """
+        new_filter = _DataFilter(cb, None, None, None, None, None)
+        with self._data_rfa_request_lock:
+            self._data_rfa_request_filters[id(new_filter)] = new_filter
+
+        return id(new_filter)
+
+    def unregister_rfa_request_received_traffic_cb(self, id):
+        """Unregister rfa request callback previously registered
+        with :meth:`~wirepas_mqtt_library.wirepas_network_interface.WirepasNetworkInterface.register_rfa_request_traffic_cb`
+
+        :param id: id returned when adding the filter
+        :raises KeyError: if id doesn't exist
+        """
+        with self._data_rfa_request_lock:
+            del self._data_rfa_request_filters[id]
 
 class _DataFilter:
     def __init__(self, cb, gateway=None, sink=None, network=None, src_ep=None, dst_ep=None):
@@ -1252,3 +1300,13 @@ class _TaskQueue(Queue):
         for worker_id in range(0,self._num_worker):
             logging.debug("Adding empty task to force worker %d thread to exit" %worker_id)
             self.add_task(None)
+
+
+class RfaRequestEvent:
+    def __init__(self, payload, hes_id, request_type):
+        self.payload = payload
+        self.hes_id = hes_id
+        self.request_type = request_type
+
+    def __repr__(self):
+        return str({"payload": self.payload, "hes_id": self.hes_id, "request_type": self.request_type})

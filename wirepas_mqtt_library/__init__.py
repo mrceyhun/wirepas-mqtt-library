@@ -1,3 +1,4 @@
 from .wirepas_network_interface import WirepasNetworkInterface
+from .wirepas_network_interface import RfaRequestEvent
 from .wirepas_otap_helper import WirepasOtapHelper
 from .wirepas_tlv_app_config_helper import WirepasTLVAppConfigHelper
