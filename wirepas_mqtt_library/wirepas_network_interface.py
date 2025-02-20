@@ -1150,17 +1150,17 @@ class WirepasNetworkInterface:
     def send_rfadaptor_message(self, msg_type, hes_id, payload, req_id, qos=0, sub_msg_type='ondemand', param=None):
         """
         send_rfadaptor_message(self, msg_type, hes_id, payload, qos=0, sub_msg_type='ondemand', cb=None, param=None)
-        Send a rfadaptor push or ondemand message to wirepas mqtt broker
+        Send a rfadaptor push, notification or ondemand message to wirepas mqtt broker
 
-        :param msg_type: one of {PUSH, REQUEST, RESPONSE}
+        :param msg_type: one of {PUSH, NOTIFICATION, REQUEST, RESPONSE}
         :type msg_type: str
         :param hes_id: Hes id
         :type hes_id: str
         param sub_msg_type: request or response sub topic name, i.e. ondemand
         :type sub_msg_type: str
         :param payload: payload to send
-        :type payload: bytes
-        :param req_id: Unique id of either push or ondemand
+        :type payload: bytes or str
+        :param req_id: Unique id of either push, notification or ondemand
         :type req_id: int
         :param qos:  Quality of service to use (0 or 1) (default is 0)
         :param param: Optional parameter that will be passed to callback
@@ -1168,13 +1168,15 @@ class WirepasNetworkInterface:
         :return: None
         """
         msg_type = msg_type.upper()
-        if msg_type not in {"PUSH", "REQUEST", "RESPONSE"}:
+        if msg_type not in {"PUSH", "NOTIFICATION", "REQUEST", "RESPONSE"}:
             logging.warning(f"Send rfadaptor msg_type is not correct {msg_type}, ",
                             f"hes_id: {hes_id}, payload: {payload}")
             return
 
         if msg_type == "PUSH":
             self._publish_plain(TopicGenerator.make_rfa_push_event_topic(), payload, qos)
+        elif msg_type == "NOTIFICATION":
+            self._publish_plain(TopicGenerator.make_rfa_notification_event_topic(), payload, qos)
         elif msg_type == "RESPONSE":
             self._publish_plain(TopicGenerator.make_rfa_response_topic(response_type=sub_msg_type, hes_id=hes_id), payload, qos)
         elif msg_type == "REQUEST":

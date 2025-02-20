@@ -170,6 +170,10 @@ class TopicGenerator:
         return TopicGenerator._make_rfa_event_topic('pushdata', params)
 
     @staticmethod
+    def make_rfa_notification_event_topic(params=[]):
+        return TopicGenerator._make_rfa_event_topic('notification', params)
+
+    @staticmethod
     def make_rfa_request_topic(request_type, hes_id=None):
         if hes_id:
             return TopicGenerator._make_rfa_request_topic(request_type, [str(hes_id)])
