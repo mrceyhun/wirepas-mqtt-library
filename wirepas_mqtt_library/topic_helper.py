@@ -8,7 +8,7 @@ BASE_RESPONSE = "gw-response"
 BASE_RFA_EVENT = "rfa-event"
 BASE_RFA_REQUEST = "rfa-request"
 BASE_RFA_RESPONSE = "rfa-response"
-BASE_RFA_REQUEST_TYPES = [ 'ondemand' ]
+BASE_RFA_REQUEST_TYPES = [ "ondemand", "config" ]
 
 
 class TopicGenerator:
@@ -174,18 +174,12 @@ class TopicGenerator:
         return TopicGenerator._make_rfa_event_topic('notification', params)
 
     @staticmethod
-    def make_rfa_request_topic(request_type, hes_id=None):
-        if hes_id:
-            return TopicGenerator._make_rfa_request_topic(request_type, [str(hes_id)])
-        else:
-            return TopicGenerator._make_rfa_request_topic(request_type, [])
+    def make_rfa_request_topic(request_type, priority=0, hes_id=0):
+        return TopicGenerator._make_rfa_request_topic(request_type, [str(priority), str(hes_id)])
 
     @staticmethod
-    def make_rfa_response_topic(response_type, hes_id=None):
-        if hes_id:
-            return TopicGenerator._make_rfa_response_topic(response_type, [str(hes_id)])
-        else:
-            return TopicGenerator._make_rfa_response_topic(response_type, [])
+    def make_rfa_response_topic(response_type, hes_id=0):
+        return TopicGenerator._make_rfa_response_topic(response_type, [str(hes_id)])
 
 
 class TopicParser:
@@ -213,18 +207,21 @@ class TopicParser:
 
     @staticmethod
     def parse_rfa_request_topic(topic):
-        if topic.count('/') == 2:
+        if topic.count('/') == 3:
+            _, request_type, priority, hes_id = topic.split("/")
+        elif topic.count('/') == 2:
             _, request_type, hes_id = topic.split("/")
+            priority = 0
         elif topic.count('/') == 1:
             _, request_type = topic.split("/")
-            hes_id = 0
+            hes_id, priority = 0, 0
         else:
             raise RuntimeError("Wrong topic for rfa-request")
 
         if request_type not in BASE_RFA_REQUEST_TYPES:
             raise RuntimeError("Wrong topic for rfa-request")
 
-        return request_type, hes_id
+        return request_type, priority, hes_id
 
     @staticmethod
     def parse_status_topic(topic):

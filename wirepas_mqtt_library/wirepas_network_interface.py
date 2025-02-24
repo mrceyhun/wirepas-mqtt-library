@@ -706,7 +706,7 @@ class WirepasNetworkInterface:
         :param dst_ep: destination endpoint
         :param qos:  Quality of service to use (0 or 1) (default is 0)
         :param payload: payload to send
-        :type payload: bytearray
+        :type payload: bytes
         :param csma_ca_only: Is packet only for csma-ca nodes
         :type csma_ca_only: bool
         :param hop_limit(int): maximum number of hops this message can do to reach its destination (<16)
@@ -1147,7 +1147,8 @@ class WirepasNetworkInterface:
         return str(self._gateways)
 
     @_wait_for_connection
-    def send_rfadaptor_message(self, msg_type, hes_id, payload, req_id, qos=0, sub_msg_type='ondemand', param=None):
+    def send_rfadaptor_message(
+        self, msg_type, hes_id, payload, req_id, qos=0, sub_msg_type='ondemand', msg_priority=0,param=None):
         """
         send_rfadaptor_message(self, msg_type, hes_id, payload, qos=0, sub_msg_type='ondemand', cb=None, param=None)
         Send a rfadaptor push, notification or ondemand message to wirepas mqtt broker
@@ -1156,13 +1157,16 @@ class WirepasNetworkInterface:
         :type msg_type: str
         :param hes_id: Hes id
         :type hes_id: str
-        param sub_msg_type: request or response sub topic name, i.e. ondemand
+        param sub_msg_type: request or response sub topic name, i.e. ondemand, config
         :type sub_msg_type: str
         :param payload: payload to send
         :type payload: bytes or str
-        :param req_id: Unique id of either push, notification or ondemand
+        :param req_id: Unique id of either rfa-event, rfa-request, rfa-response
         :type req_id: int
-        :param qos:  Quality of service to use (0 or 1) (default is 0)
+        :param qos: Quality of service to use (0 or 1) (default is 0)
+        :type qos: int
+        :param msg_priority: Message priority used in RF adaptor (default is 0)
+        :type msg_priority: int
         :param param: Optional parameter that will be passed to callback
         :type param: object
         :return: None
@@ -1180,12 +1184,23 @@ class WirepasNetworkInterface:
         elif msg_type == "RESPONSE":
             self._publish_plain(TopicGenerator.make_rfa_response_topic(response_type=sub_msg_type, hes_id=hes_id), payload, qos)
         elif msg_type == "REQUEST":
-            self._publish_plain(TopicGenerator.make_rfa_request_topic(request_type=sub_msg_type, hes_id=hes_id), payload, qos)
+            self._publish_plain(
+                topic=TopicGenerator.make_rfa_request_topic(request_type=sub_msg_type,
+                                                            priority=msg_priority,
+                                                            hes_id=hes_id),
+                payload=payload,
+                qos=qos
+            )
 
     def _on_rfa_request_received(self, client, userdata, message):
         try:
-            request_type, hes_id = TopicParser.parse_rfa_request_topic(message.topic)
-            data = RfaRequestEvent(payload=message.payload, hes_id=hes_id, request_type=request_type)
+            request_type, priority, hes_id = TopicParser.parse_rfa_request_topic(message.topic)
+            data = RfaRequestEvent(
+                request_type=request_type,
+                hes_id=hes_id,
+                priority=priority,
+                payload=message.payload
+            )
             self._task_queue.add_task(self._dispatch_rfa_request_data, data)
         except ValueError:
             logging.error(f"Cannot parse rfadaptor request topic: {message.topic} , message: {message.payload!r}")
@@ -1305,10 +1320,15 @@ class _TaskQueue(Queue):
 
 
 class RfaRequestEvent:
-    def __init__(self, payload, hes_id, request_type):
-        self.payload = payload
-        self.hes_id = hes_id
+    def __init__(self, request_type, priority, hes_id, payload):
         self.request_type = request_type
+        self.priority = priority
+        self.hes_id = hes_id
+        self.payload = payload
+
 
     def __repr__(self):
-        return str({"payload": self.payload, "hes_id": self.hes_id, "request_type": self.request_type})
+        return str({"request_type": self.request_type,
+                    "priority": self.priority,
+                    "hes_id": self.hes_id,
+                    "payload": self.payload})
