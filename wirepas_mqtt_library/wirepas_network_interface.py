@@ -32,6 +32,10 @@ class WirepasNetworkInterface:
     # topic and connection is established
     _TIMEOUT_GW_STATUS_S = 2
 
+    # Allowed RFAdaptor message types used as sub-topics
+    _RFA_ALLOWED_MSG_TYPES = {"push", "notification", "request", "response"}
+    _RFA_ALLOWED_SUB_MSG_TYPES = {"ondemand", "config"}
+
     # Inner class definition to define a gateway
     class _Gateway:
         def __init__(self, id, online=False, sinks=None, model=None, version=None, max_scratchpad_size=None):
@@ -1148,21 +1152,21 @@ class WirepasNetworkInterface:
 
     @_wait_for_connection
     def send_rfadaptor_message(
-        self, msg_type, hes_id, payload, req_id, qos=0, sub_msg_type='ondemand', msg_priority=0,param=None):
+        self, msg_type, payload, req_id, hes_id=None, qos=0, sub_msg_type='ondemand', msg_priority=0,param=None):
         """
         send_rfadaptor_message(self, msg_type, hes_id, payload, qos=0, sub_msg_type='ondemand', cb=None, param=None)
         Send a rfadaptor push, notification or ondemand message to wirepas mqtt broker
 
-        :param msg_type: one of {PUSH, NOTIFICATION, REQUEST, RESPONSE}
+        :param msg_type: one of {push, notification, request, response}
         :type msg_type: str
-        :param hes_id: Hes id
-        :type hes_id: str
-        param sub_msg_type: request or response sub topic name, i.e. ondemand, config
+        param sub_msg_type: request or response sub topic name, i.e. ondeamand, config
         :type sub_msg_type: str
         :param payload: payload to send
         :type payload: bytes or str
         :param req_id: Unique id of either rfa-event, rfa-request, rfa-response
-        :type req_id: int
+        :type req_id: int or bytes
+        :param hes_id: Hes id (default None), not used in rfa-event
+        :type hes_id: str
         :param qos: Quality of service to use (0 or 1) (default is 0)
         :type qos: int
         :param msg_priority: Message priority used in RF adaptor (default is 0)
@@ -1171,19 +1175,28 @@ class WirepasNetworkInterface:
         :type param: object
         :return: None
         """
-        msg_type = msg_type.upper()
-        if msg_type not in {"PUSH", "NOTIFICATION", "REQUEST", "RESPONSE"}:
+        msg_type = msg_type.lower()
+        sub_msg_type = sub_msg_type.lower()
+        if msg_type not in self._RFA_ALLOWED_MSG_TYPES:
             logging.warning(f"Send rfadaptor msg_type is not correct {msg_type}, ",
                             f"hes_id: {hes_id}, payload: {payload}")
             return
 
-        if msg_type == "PUSH":
+        if msg_type == "push":
             self._publish_plain(TopicGenerator.make_rfa_push_event_topic(), payload, qos)
-        elif msg_type == "NOTIFICATION":
+        elif msg_type == "notification":
             self._publish_plain(TopicGenerator.make_rfa_notification_event_topic(), payload, qos)
-        elif msg_type == "RESPONSE":
+        elif msg_type == "response":
+            if (not hes_id) or (sub_msg_type not in self._RFA_ALLOWED_SUB_MSG_TYPES):
+                logging.warning(f"Send rfadaptor response msg type does not have proper parameters ",
+                                f"hes_id: {hes_id}, sub_msg_type: {sub_msg_type}, payload: {payload}")
+                return
             self._publish_plain(TopicGenerator.make_rfa_response_topic(response_type=sub_msg_type, hes_id=hes_id), payload, qos)
-        elif msg_type == "REQUEST":
+        elif msg_type == "request":
+            if (not hes_id) or (sub_msg_type not in self._RFA_ALLOWED_SUB_MSG_TYPES):
+                logging.warning(f"Send rfadaptor request msg type does not have proper parameters ",
+                                f"hes_id: {hes_id}, sub_msg_type: {sub_msg_type}, payload: {payload}")
+                return
             self._publish_plain(
                 topic=TopicGenerator.make_rfa_request_topic(request_type=sub_msg_type,
                                                             priority=msg_priority,
